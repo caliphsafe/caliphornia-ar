@@ -109,8 +109,9 @@ function ARPage(){
       {/* Portrait HUD controls */}
       {!gated && (
         <div id="hud" style={{
-          position:'fixed', left:0, right:0, bottom:14, zIndex:7,
-          display:'flex', gap:12, justifyContent:'center', alignItems:'center'
+          position:'fixed', left:0, right:0, bottom:14, zIndex:7000,
+          display:'flex', gap:12, justifyContent:'center', alignItems:'center',
+          opacity:0, transition:'opacity .25s ease'
         }}>
           <button id="hPrev" className="glass-button">◀︎</button>
           <button id="hPlay" className="glass-button">Play/Pause</button>
@@ -153,7 +154,7 @@ function ARPage(){
             <audio id="player" crossorigin="anonymous" preload="auto" playsinline webkit-playsinline></audio>
 
             <button id="start" class="glass-button"
-              style="position:fixed;left:50%;transform:translateX(-50%);bottom:110px;z-index:7;"
+              style="position:fixed;left:50%;transform:translateX(-50%);bottom:110px;z-index:7000;display:none;"
               onclick="window.__startAR&&window.__startAR()">
               Start AR & Audio
             </button>
@@ -186,6 +187,26 @@ function ARPage(){
                           position="-0.05 0.02 -0.99"></a-entity>
               </a-entity>
             </a-scene>
+
+            <!-- Show Start button once scene is loaded so Zappar can present permissions first -->
+            <script>
+              document.querySelector('a-scene')?.addEventListener('loaded', () => {
+                const btn = document.getElementById('start');
+                if (btn) btn.style.display = 'block';
+              });
+            </script>
+
+            <!-- Reveal HUD when Zappar camera becomes active -->
+            <script>
+              (function revealHUDWhenCameraLive(){
+                const cam = document.getElementById('zapparCamera');
+                if (!cam) return;
+                cam.addEventListener('zappar-camera-active', () => {
+                  const hud = document.getElementById('hud');
+                  if (hud) hud.style.opacity = '1';
+                });
+              })();
+            </script>
 
             <script>
               const dbg = document.getElementById('dbg');
@@ -232,7 +253,7 @@ function ARPage(){
                 });
               }
 
-              // iOS motion permission (audio shake/tilt). Camera permission is handled by zappar-permissions-ui.
+              // iOS motion permission (audio tilt). Camera permission is handled by zappar-permissions-ui.
               async function requestMotion(){
                 try{
                   if (typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){
@@ -308,6 +329,17 @@ function ARPage(){
           color:#fff;
         }
         .caliphornia-chrome{ position: fixed; inset: 12px 12px auto 12px; display:flex; gap:10px; z-index:5; align-items:center;}
+
+        /* Force Zappar permission/compatibility UIs above everything */
+        .zappar-permissions-ui,
+        .zappar-compatibility-ui {
+          position: fixed !important;
+          inset: 0 !important;
+          z-index: 9999 !important;
+          display: grid !important;
+          place-items: center !important;
+          pointer-events: auto !important;
+        }
       `}</style>
     </>
   );
