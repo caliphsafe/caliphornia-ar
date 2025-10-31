@@ -1,4 +1,107 @@
-// ...top of file unchanged...
+import { useEffect, useRef, useState } from 'react';
+import Head from 'next/head';
+import dynamic from 'next/dynamic'; /* ADDED */
+
+const verifyToken = async (tok, sku) => {
+  if (!tok) return false;
+  const res = await fetch(`/api/token/verify?tok=${encodeURIComponent(tok)}&sku=${encodeURIComponent(sku||'')}`);
+  const j = await res.json();
+  return j.ok === true;
+};
+
+function ARPage(){ /* CHANGED: no default here */
+  const [ready, setReady] = useState(false);
+  const [gated, setGated] = useState(true);
+  const [email, setEmail] = useState('');
+  const [playlist, setPlaylist] = useState([]);
+  const sceneRef = useRef(null);
+
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    const tok = u.searchParams.get('tok') || '';
+    const sku = u.searchParams.get('sku') || '';
+    fetch(`/api/playlist?sku=${encodeURIComponent(sku)}`)
+      .then(r=>r.json()).then(j => setPlaylist(j.tracks || []));
+    (async()=>{
+      const ok = await verifyToken(tok, sku);
+      setGated(!ok);
+    })();
+  }, []);
+
+  // Load scripts sequentially (A-Frame, then Zappar)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const s1 = document.createElement('script');
+    s1.src = 'https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe.min.js';
+    s1.onload = () => {
+      const s2 = document.createElement('script');
+      s2.src = 'https://libs.zappar.com/zappar-aframe/2.2.2/zappar-aframe.js';
+      s2.onload = () => setReady(true);
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s1);
+    return () => {
+      try { s1.remove(); } catch(e){}
+    };
+  }, []);
+
+  async function joinMailingList() {
+    const res = await fetch('/api/token/mint', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email })
+    });
+    const j = await res.json();
+    if (j.ok && j.tok){
+      const u = new URL(window.location.href);
+      u.searchParams.set('tok', j.tok);
+      window.location.href = u.toString();
+    }
+  }
+
+  return (
+    <>
+      <Head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+        <title>Caliphornia AR Player</title>
+        <link rel="preload" href="/ui/panel.svg" as="image" />
+      </Head>
+
+      {/* Caliphornia top chrome */}
+      <div className="caliphornia-chrome glass-panel" style={{padding:10}}>
+        <img src="/ui/caliphornia-logo.svg" alt="Caliphornia" height={22}/>
+        <div style={{marginLeft:8, fontWeight:600}}>AR Player</div>
+      </div>
+
+      {/* Now Playing (glass overlay) */}
+      <div id="np" className="glass-panel np-card" style={{display:'none'}}>
+        <img id="npCover" alt="" />
+        <div className="np-text">
+          <div id="npTitle" className="np-title">—</div>
+          <div id="npArtist" className="np-artist">—</div>
+        </div>
+      </div>
+
+      {/* Email Gate */}
+      {gated && (
+        <div style={{
+          position:'fixed', inset:0, display:'grid', placeItems:'center',
+          background:'radial-gradient(ellipse at center, rgba(0,0,0,0.75), rgba(0,0,0,0.9))',
+          zIndex:10
+        }}>
+          <div className="glass-panel" style={{width:320, padding:20}}>
+            <h3 style={{margin:'0 0 10px'}}>Join Caliphornia</h3>
+            <p style={{opacity:0.9, margin:'0 0 12px'}}>Enter your email to unlock the AR playlist.</p>
+            <input
+              type="email" placeholder="you@domain.com" value={email}
+              onChange={e=>setEmail(e.target.value)}
+              className="glass-button" style={{width:'100%', marginBottom:10}}
+            />
+            <button className="glass-button" style={{width:'100%'}} onClick={joinMailingList}>Unlock</button>
+            <p style={{opacity:0.6, fontSize:12, marginTop:10}}>Scan your hoodie’s wrist QR to access exclusive drops.</p>
+          </div>
+        </div>
+      )}
 
       {/* AR Scene */}
       <div ref={sceneRef} style={{height:'100vh', background:'#000'}}>
@@ -188,280 +291,6 @@
         )}
       </div>
 
-// ...rest of file (styles) unchanged...
-import { useEffect, useRef, useState } from 'react';
-import Head from 'next/head';
-
-const verifyToken = async (tok, sku) => {
-  if (!tok) return false;
-  const res = await fetch(`/api/token/verify?tok=${encodeURIComponent(tok)}&sku=${encodeURIComponent(sku||'')}`);
-  const j = await res.json();
-  return j.ok === true;
-};
-
-export default function ARPage(){
-  const [ready, setReady] = useState(false);
-  const [gated, setGated] = useState(true);
-  const [email, setEmail] = useState('');
-  const [playlist, setPlaylist] = useState([]);
-  const sceneRef = useRef(null);
-
-  useEffect(() => {
-    const u = new URL(window.location.href);
-    const tok = u.searchParams.get('tok') || '';
-    const sku = u.searchParams.get('sku') || '';
-    fetch(`/api/playlist?sku=${encodeURIComponent(sku)}`)
-      .then(r=>r.json()).then(j => setPlaylist(j.tracks || []));
-    (async()=>{
-      const ok = await verifyToken(tok, sku);
-      setGated(!ok);
-    })();
-  }, []);
-
-  // CHANGED: load scripts sequentially to avoid race (A-Frame first, then Zappar)
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const s1 = document.createElement('script');
-    s1.src = 'https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe.min.js';
-    s1.onload = () => {
-      const s2 = document.createElement('script');
-      s2.src = 'https://libs.zappar.com/zappar-aframe/2.2.2/zappar-aframe.js';
-      s2.onload = () => setReady(true);
-      document.head.appendChild(s2);
-    };
-    document.head.appendChild(s1);
-    return () => {
-      try { s1.remove(); } catch(e){}
-      // s2 is block-scoped; best-effort clean not strictly needed for a single page app
-    };
-  }, []);
-
-  async function joinMailingList() {
-    const res = await fetch('/api/token/mint', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ email })
-    });
-    const j = await res.json();
-    if (j.ok && j.tok){
-      const u = new URL(window.location.href);
-      u.searchParams.set('tok', j.tok);
-      window.location.href = u.toString();
-    }
-  }
-
-  return (
-    <>
-      <Head>
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-        <title>Caliphornia AR Player</title>
-        <link rel="preload" href="/ui/panel.svg" as="image" />
-      </Head>
-
-      {/* Caliphornia top chrome */}
-      <div className="caliphornia-chrome glass-panel" style={{padding:10}}>
-        <img src="/ui/caliphornia-logo.svg" alt="Caliphornia" height={22}/>
-        <div style={{marginLeft:8, fontWeight:600}}>AR Player</div>
-      </div>
-
-      {/* Now Playing (glass overlay) */}
-      <div id="np" className="glass-panel np-card" style={{display:'none'}}>
-        <img id="npCover" alt="" />
-        <div className="np-text">
-          <div id="npTitle" className="np-title">—</div>
-          <div id="npArtist" className="np-artist">—</div>
-        </div>
-      </div>
-
-      {/* Email Gate */}
-      {gated && (
-        <div style={{
-          position:'fixed', inset:0, display:'grid', placeItems:'center',
-          background:'radial-gradient(ellipse at center, rgba(0,0,0,0.75), rgba(0,0,0,0.9))',
-          zIndex:10
-        }}>
-          <div className="glass-panel" style={{width:320, padding:20}}>
-            <h3 style={{margin:'0 0 10px'}}>Join Caliphornia</h3>
-            <p style={{opacity:0.9, margin:'0 0 12px'}}>Enter your email to unlock the AR playlist.</p>
-            <input
-              type="email" placeholder="you@domain.com" value={email}
-              onChange={e=>setEmail(e.target.value)}
-              className="glass-button" style={{width:'100%', marginBottom:10}}
-            />
-            <button className="glass-button" style={{width:'100%'}} onClick={joinMailingList}>Unlock</button>
-            <p style={{opacity:0.6, fontSize:12, marginTop:10}}>Scan your hoodie’s wrist QR to access exclusive drops.</p>
-          </div>
-        </div>
-      )}
-
-      {/* AR Scene */}
-      <div ref={sceneRef} style={{height:'100vh', background:'#000'}}>
-        {ready && !gated && (
-          <div dangerouslySetInnerHTML={{__html: `
-            <!-- DEBUG overlay (tiny, non-blocking) -->
-            <pre id="dbg" style="position:fixed;left:8px;bottom:8px;z-index:6;color:#9cf;background:rgba(0,0,0,.35);padding:6px 8px;border-radius:8px;max-width:70vw;max-height:40vh;overflow:auto;font-size:10px;display:none"></pre>
-
-            <audio id="player" crossorigin="anonymous" preload="auto" playsinline></audio>
-
-            <button
-              id="start"
-              class="glass-button"
-              style="position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:3;"
-              onclick="window.__startAR&&window.__startAR()"
-            >
-              Start AR & Audio
-            </button>
-
-            <a-scene
-              renderer="colorManagement: true; physicallyCorrectLights: true"
-              zappar="pipeline: cameraPipeline"
-              vr-mode-ui="enabled: false"
-              device-orientation-permission-ui="enabled: false"
-              embedded
-              style="height:100vh;">
-
-              <a-entity id="cameraPipeline"></a-entity>
-              <a-entity zappar-permissions-ui></a-entity>
-              <a-entity zappar-compatibility-ui></a-entity>
-
-              <a-entity id="zapparCamera" camera zappar-camera="userFacing: false;"></a-entity>
-
-              <!-- World-tracked anchor -->
-              <a-entity zappar-instant="placement-mode: true" id="instant">
-                <!-- Glass panel card -->
-                <a-plane id="panel" position="0 0 -1" width="1.2" height="0.72"
-                  material="src: /ui/panel.svg; transparent: true;">
-                </a-plane>
-
-                <!-- Buttons -->
-                <a-image id="btn-prev" src="/ui/btn-prev.svg" position="-0.35 -0.12 -0.99" width="0.18" height="0.18"></a-image>
-                <a-image id="btn-play" src="/ui/btn-play.svg" position="0 -0.12 -0.99" width="0.18" height="0.18"></a-image>
-                <a-image id="btn-next" src="/ui/btn-next.svg" position="0.35 -0.12 -0.99" width="0.18" height="0.18"></a-image>
-
-                <a-image id="now-title" src="/ui/nowplaying.svg" position="0 0.12 -0.99" width="0.9" height="0.12"></a-image>
-
-                <!-- 3D cover + text inside panel -->
-                <a-image id="cover3d" src="/ui/cover-fallback.png" position="-0.42 0.08 -0.99" width="0.24" height="0.24"></a-image>
-                <a-entity id="title3d" text="value: ; color: #FFFFFF; width: 1.2; wrapCount: 18"
-                          position="-0.12 0.15 -0.99"></a-entity>
-                <a-entity id="artist3d" text="value: ; color: #DDDDDD; width: 1.2; wrapCount: 22"
-                          position="-0.12 0.05 -0.99"></a-entity>
-              </a-entity>
-            </a-scene>
-
-            <script>
-              const dbg = document.getElementById('dbg');
-              function log(msg){ try{ dbg.style.display='block'; dbg.textContent += (msg+'\\n'); }catch(e){} }
-              window.onerror = function(m, s, l, c, e){ log('ERR: '+m); };
-
-              let index = 0;
-              const audio = document.getElementById('player');
-
-              function updateNowPlayingUI(track){
-                try{
-                  const np = document.getElementById('np');
-                  const cov = document.getElementById('npCover');
-                  const t = document.getElementById('npTitle');
-                  const a = document.getElementById('npArtist');
-
-                  if (track){
-                    if (cov) cov.src = track.cover || '';
-                    if (t) t.textContent = track.title || '';
-                    if (a) a.textContent = track.artist || '';
-                    if (np) np.style.display = 'flex';
-                  } else {
-                    if (np) np.style.display = 'none';
-                  }
-
-                  const c3d = document.getElementById('cover3d');
-                  const t3d = document.getElementById('title3d');
-                  const a3d = document.getElementById('artist3d');
-                  if (c3d && track && track.cover) c3d.setAttribute('src', track.cover);
-                  if (t3d) t3d.setAttribute('text', 'value', track?.title || '');
-                  if (a3d) a3d.setAttribute('text', 'value', track?.artist || '');
-                }catch(e){ log('updateUI fail'); }
-              }
-
-              function loadCurrent(){
-                const list = window.__playlist || [];
-                const track = list[index];
-                if (!track){ log('no track'); return; }
-                audio.src = track.url || '';
-                audio.load();
-                updateNowPlayingUI(track);
-                log('loaded: '+(track.title||''));
-              }
-
-              function ensurePlaylistLoaded(){
-                return new Promise((resolve) => {
-                  if (window.__playlist && window.__playlist.length) return resolve(true);
-                  fetch('/api/playlist' + window.location.search)
-                    .then(r=>r.json())
-                    .then(j => { window.__playlist = j.tracks || []; log('tracks:'+window.__playlist.length); resolve(true); })
-                    .catch((e)=> { log('playlist fetch fail'); resolve(true); });
-                });
-              }
-
-              async function requestMotion(){
-                try{
-                  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
-                    await DeviceMotionEvent.requestPermission();
-                    log('motion ok');
-                  }
-                }catch(e){ log('motion denied'); }
-              }
-
-              async function requestCamera(){
-                try{
-                  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-                    stream.getTracks().forEach(t => t.stop());
-                    log('camera ok');
-                  } else {
-                    log('no mediaDevices');
-                  }
-                }catch(e){ log('camera denied'); }
-              }
-
-              // Preload playlist opportunistically
-              fetch('/api/playlist' + window.location.search)
-                .then(r=>r.json())
-                .then(j => { window.__playlist = j.tracks || []; log('preload tracks:'+window.__playlist.length); });
-
-              // Global start handler
-              window.__startAR = async () => {
-                log('start tap');
-                await ensurePlaylistLoaded();
-                await requestCamera();
-                await requestMotion();
-                loadCurrent();
-                try { await audio.play(); log('audio play ok'); } catch(e) { log('audio play blocked'); }
-                audio.pause();
-                const btn = document.getElementById('start');
-                if (btn) btn.style.display='none';
-              };
-
-              function play(){ audio.play(); }
-              function next(){ if(!window.__playlist?.length) return; index=(index+1)%window.__playlist.length; loadCurrent(); audio.play(); }
-              function prev(){ if(!window.__playlist?.length) return; index=(index-1+window.__playlist.length)%window.__playlist.length; loadCurrent(); audio.play(); }
-
-              document.getElementById('btn-play')?.addEventListener('click', play);
-              document.getElementById('btn-next')?.addEventListener('click', next);
-              document.getElementById('btn-prev')?.addEventListener('click', prev);
-
-              let lastTilt = 0;
-              window.addEventListener('deviceorientation', (e)=>{
-                if (Math.abs(e.gamma - lastTilt) > 50){
-                  if (e.gamma > 40) next();
-                  if (e.gamma < -40) prev();
-                  lastTilt = e.gamma;
-                }
-              });
-            </script>
-          `}}/>
-        )}
-      </div>
-
       <style jsx global>{`
         @import url('/styles/glass.css');
         body, html, #__next { margin:0; height:100%; background:#000; color:#fff; font-family: -apple-system, system-ui, Inter, Roboto, sans-serif; }
@@ -492,3 +321,6 @@ export default function ARPage(){
     </>
   );
 }
+
+/* ADDED: disable SSR for this page (client-only AR) */
+export default dynamic(() => Promise.resolve(ARPage), { ssr: false });
