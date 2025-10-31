@@ -43,7 +43,7 @@ function ARPage(){
       document.head.appendChild(s);
     });
 
-    const AFRAME_SOURCES = [ '/vendor/aframe/aframe.min.js?v=1' ];
+    const AFRAME_SOURCES = [ '/vendor/aframe/aframe.min.js?v=1' ]; // local
     const ZAPPAR_SOURCES = [
       '/vendor/zappar/zappar-aframe.js?v=1',
       'https://unpkg.com/@zappar/zappar-aframe@2.2.2/dist/zappar-aframe.js'
@@ -106,7 +106,7 @@ function ARPage(){
         </div>
       </div>
 
-      {/* Portrait HUD controls (always upright) */}
+      {/* Portrait HUD controls */}
       {!gated && (
         <div id="hud" style={{
           position:'fixed', left:0, right:0, bottom:14, zIndex:7,
@@ -145,12 +145,12 @@ function ARPage(){
       )}
 
       {/* AR Scene */}
-      <div ref={sceneRef} style={{height:'100vh', background:'#000'}}>
+      <div ref={sceneRef} style={{position:'fixed', inset:0, background:'transparent'}}>
         {ready && !gated && (
           <div dangerouslySetInnerHTML={{__html: `
             <pre id="dbg" style="position:fixed;left:8px;bottom:64px;z-index:6;color:#9cf;background:rgba(0,0,0,.45);padding:6px 8px;border-radius:8px;max-width:70vw;max-height:40vh;overflow:auto;font-size:10px;display:block"></pre>
 
-            <audio id="player" crossorigin="anonymous" preload="auto" playsinline></audio>
+            <audio id="player" crossorigin="anonymous" preload="auto" playsinline webkit-playsinline></audio>
 
             <button id="start" class="glass-button"
               style="position:fixed;left:50%;transform:translateX(-50%);bottom:110px;z-index:7;"
@@ -159,26 +159,26 @@ function ARPage(){
             </button>
 
             <a-scene
-              renderer="alpha: true; antialias: true; colorManagement: true; physicallyCorrectLights: true"
+              renderer="alpha: true; antialias: true; physicallyCorrectLights: true; colorManagement: true"
+              background="transparent: true"
               zappar="pipeline: cameraPipeline"
               vr-mode-ui="enabled: false"
               device-orientation-permission-ui="enabled: false"
               embedded
-              style="height:100vh;">
+              style="position:fixed; inset:0;">
 
               <a-entity id="cameraPipeline"></a-entity>
+              <!-- Let these UIs prompt for camera/motion; no manual getUserMedia -->
               <a-entity zappar-permissions-ui></a-entity>
               <a-entity zappar-compatibility-ui></a-entity>
 
               <a-entity id="zapparCamera" camera zappar-camera="userFacing: false;"></a-entity>
 
-              <!-- Instant placement anchor -->
+              <!-- Instant placement anchor (tap once to place) -->
               <a-entity id="anchor" zappar-instant="placement-mode: true">
-                <!-- Glass panel card (no giant 3D buttons) -->
                 <a-plane id="panel" position="0 0 -1" width="0.95" height="0.56"
                   material="src: /ui/panel.svg; transparent: true;"></a-plane>
 
-                <!-- 3D cover + text inside panel -->
                 <a-image id="cover3d" src="/ui/cover-fallback.png" position="-0.32 0.06 -0.99" width="0.20" height="0.20"></a-image>
                 <a-entity id="title3d" text="value: ; color: #FFFFFF; width: 1.1; wrapCount: 18"
                           position="-0.05 0.11 -0.99"></a-entity>
@@ -232,6 +232,7 @@ function ARPage(){
                 });
               }
 
+              // iOS motion permission (audio shake/tilt). Camera permission is handled by zappar-permissions-ui.
               async function requestMotion(){
                 try{
                   if (typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){
@@ -240,36 +241,25 @@ function ARPage(){
                 }catch(e){ log('motion denied'); }
                 return true;
               }
-              async function requestCamera(){
-                try{
-                  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
-                    const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' }, audio:false });
-                    stream.getTracks().forEach(t=>t.stop()); log('camera: granted'); return true;
-                  } else { log('no mediaDevices'); }
-                }catch(e){ log('camera: denied'); }
-                return false;
-              }
 
               fetch('/api/playlist'+window.location.search)
                 .then(r=>r.json())
                 .then(j => { window.__playlist = j.tracks||[]; log('preload tracks:'+window.__playlist.length); });
 
-              // First tap places the panel (exit placement mode)
+              // First document tap exits placement mode so the panel anchors
               document.addEventListener('click', () => {
                 const anchor = document.getElementById('anchor');
-                if (anchor && anchor.getAttribute('zappar-instant').placementMode) {
-                  anchor.setAttribute('zappar-instant', 'placement-mode: false');
-                  log('anchor placed');
-                }
+                try{
+                  const cfg = anchor.getAttribute('zappar-instant');
+                  if (cfg && cfg.placementMode){ anchor.setAttribute('zappar-instant','placement-mode: false'); log('anchor placed'); }
+                }catch(e){}
               }, { once: true });
 
               window.__startAR = async () => {
                 log('start tap'); setBtn('Loading…');
                 const gotList = await ensurePlaylistLoaded();
-                const camOK = await requestCamera();
                 const motOK = await requestMotion();
                 if (!gotList){ setBtn('Retry: Load Playlist'); return; }
-                if (!camOK){ setBtn('Allow Camera to Continue'); return; }
                 const ok = loadCurrent(); if (!ok){ setBtn('No Tracks — Retry'); return; }
                 let audioOK=false; try{ await audio.play(); audioOK=true; log('audio: play ok'); }catch(e){ log('audio: play blocked'); }
                 if (!audioOK){ setBtn('Tap to Unmute / Play'); return; }
@@ -283,7 +273,6 @@ function ARPage(){
               hNext?.addEventListener('click', next);
               hPrev?.addEventListener('click', prev);
 
-              // Tilt gestures stay enabled
               let lastTilt=0;
               window.addEventListener('deviceorientation',(e)=>{
                 if (Math.abs(e.gamma-lastTilt)>50){ if (e.gamma>40) next(); if (e.gamma<-40) prev(); lastTilt=e.gamma; }
