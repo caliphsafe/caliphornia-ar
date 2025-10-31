@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'; 
+import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import dynamic from 'next/dynamic';
 
@@ -27,7 +27,7 @@ function ARPage(){
     })();
   }, []);
 
-  // Loader (local A-Frame only)
+  // ---- Load scripts (local A-Frame only + Zappar) ----
   async function loadScripts() {
     if (typeof window === 'undefined') return;
     setReady(false);
@@ -43,13 +43,11 @@ function ARPage(){
       document.head.appendChild(s);
     });
 
-    const AFRAME_SOURCES = [
-      '/vendor/aframe/aframe.min.js?v=1' // ← local file only
-    ];
+    const AFRAME_SOURCES = [ '/vendor/aframe/aframe.min.js?v=1' ];
     const ZAPPAR_SOURCES = [
-      '/vendor/zappar/zappar-aframe.js?v=1'  // ← local Zappar build only
+      '/vendor/zappar/zappar-aframe.js?v=1',
+      'https://unpkg.com/@zappar/zappar-aframe@2.2.2/dist/zappar-aframe.js'
     ];
-
 
     let afOk = false;
     for (const src of AFRAME_SOURCES) {
@@ -108,6 +106,18 @@ function ARPage(){
         </div>
       </div>
 
+      {/* Portrait HUD controls (always upright) */}
+      {!gated && (
+        <div id="hud" style={{
+          position:'fixed', left:0, right:0, bottom:14, zIndex:7,
+          display:'flex', gap:12, justifyContent:'center', alignItems:'center'
+        }}>
+          <button id="hPrev" className="glass-button">◀︎</button>
+          <button id="hPlay" className="glass-button">Play/Pause</button>
+          <button id="hNext" className="glass-button">▶︎</button>
+        </div>
+      )}
+
       {/* Email Gate */}
       {gated && (
         <div style={{ position:'fixed', inset:0, display:'grid', placeItems:'center',
@@ -126,7 +136,7 @@ function ARPage(){
 
       {/* Loading HUD with retry */}
       {!gated && !ready && (
-        <div style={{ position:'fixed', inset:0, display:'grid', placeItems:'center', zIndex:4 }}>
+        <div style={{ position:'fixed', inset:0, display:'grid', placeItems:'center', zIndex:6 }}>
           <div className="glass-panel" style={{padding:'12px 16px', fontSize:14, display:'flex', gap:10, alignItems:'center'}}>
             <span>{status}</span>
             <button className="glass-button" onClick={loadScripts}>Retry</button>
@@ -138,37 +148,42 @@ function ARPage(){
       <div ref={sceneRef} style={{height:'100vh', background:'#000'}}>
         {ready && !gated && (
           <div dangerouslySetInnerHTML={{__html: `
-            <pre id="dbg" style="position:fixed;left:8px;bottom:8px;z-index:6;color:#9cf;background:rgba(0,0,0,.45);padding:6px 8px;border-radius:8px;max-width:70vw;max-height:40vh;overflow:auto;font-size:10px;display:block"></pre>
+            <pre id="dbg" style="position:fixed;left:8px;bottom:64px;z-index:6;color:#9cf;background:rgba(0,0,0,.45);padding:6px 8px;border-radius:8px;max-width:70vw;max-height:40vh;overflow:auto;font-size:10px;display:block"></pre>
 
             <audio id="player" crossorigin="anonymous" preload="auto" playsinline></audio>
 
             <button id="start" class="glass-button"
-              style="position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:7;"
+              style="position:fixed;left:50%;transform:translateX(-50%);bottom:110px;z-index:7;"
               onclick="window.__startAR&&window.__startAR()">
               Start AR & Audio
             </button>
 
-            <a-scene renderer="colorManagement: true; physicallyCorrectLights: true"
+            <a-scene
+              renderer="alpha: true; antialias: true; colorManagement: true; physicallyCorrectLights: true"
               zappar="pipeline: cameraPipeline"
               vr-mode-ui="enabled: false"
               device-orientation-permission-ui="enabled: false"
-              embedded style="height:100vh;">
+              embedded
+              style="height:100vh;">
+
               <a-entity id="cameraPipeline"></a-entity>
               <a-entity zappar-permissions-ui></a-entity>
               <a-entity zappar-compatibility-ui></a-entity>
+
               <a-entity id="zapparCamera" camera zappar-camera="userFacing: false;"></a-entity>
 
-              <a-entity zappar-instant="placement-mode: true" id="instant">
-                <a-plane id="panel" position="0 0 -1" width="1.2" height="0.72"
+              <!-- Instant placement anchor -->
+              <a-entity id="anchor" zappar-instant="placement-mode: true">
+                <!-- Glass panel card (no giant 3D buttons) -->
+                <a-plane id="panel" position="0 0 -1" width="0.95" height="0.56"
                   material="src: /ui/panel.svg; transparent: true;"></a-plane>
-                <a-image id="btn-prev" src="/ui/btn-prev.svg" position="-0.35 -0.12 -0.99" width="0.18" height="0.18"></a-image>
-                <a-image id="btn-play" src="/ui/btn-play.svg" position="0 -0.12 -0.99" width="0.18" height="0.18"></a-image>
-                <a-image id="btn-next" src="/ui/btn-next.svg" position="0.35 -0.12 -0.99" width="0.18" height="0.18"></a-image>
 
-                <a-image id="now-title" src="/ui/nowplaying.svg" position="0 0.12 -0.99" width="0.9" height="0.12"></a-image>
-                <a-image id="cover3d" src="/ui/cover-fallback.png" position="-0.42 0.08 -0.99" width="0.24" height="0.24"></a-image>
-                <a-entity id="title3d" text="value: ; color: #FFFFFF; width: 1.2; wrapCount: 18" position="-0.12 0.15 -0.99"></a-entity>
-                <a-entity id="artist3d" text="value: ; color: #DDDDDD; width: 1.2; wrapCount: 22" position="-0.12 0.05 -0.99"></a-entity>
+                <!-- 3D cover + text inside panel -->
+                <a-image id="cover3d" src="/ui/cover-fallback.png" position="-0.32 0.06 -0.99" width="0.20" height="0.20"></a-image>
+                <a-entity id="title3d" text="value: ; color: #FFFFFF; width: 1.1; wrapCount: 18"
+                          position="-0.05 0.11 -0.99"></a-entity>
+                <a-entity id="artist3d" text="value: ; color: #DDDDDD; width: 1.1; wrapCount: 22"
+                          position="-0.05 0.02 -0.99"></a-entity>
               </a-entity>
             </a-scene>
 
@@ -180,6 +195,11 @@ function ARPage(){
 
               let index = 0;
               const audio = document.getElementById('player');
+
+              // HTML HUD controls (portrait)
+              const hPrev = document.getElementById('hPrev');
+              const hNext = document.getElementById('hNext');
+              const hPlay = document.getElementById('hPlay');
 
               function updateNowPlayingUI(track){
                 try{
@@ -234,6 +254,15 @@ function ARPage(){
                 .then(r=>r.json())
                 .then(j => { window.__playlist = j.tracks||[]; log('preload tracks:'+window.__playlist.length); });
 
+              // First tap places the panel (exit placement mode)
+              document.addEventListener('click', () => {
+                const anchor = document.getElementById('anchor');
+                if (anchor && anchor.getAttribute('zappar-instant').placementMode) {
+                  anchor.setAttribute('zappar-instant', 'placement-mode: false');
+                  log('anchor placed');
+                }
+              }, { once: true });
+
               window.__startAR = async () => {
                 log('start tap'); setBtn('Loading…');
                 const gotList = await ensurePlaylistLoaded();
@@ -247,13 +276,14 @@ function ARPage(){
                 startBtn.style.display='none';
               };
 
-              function play(){ audio.play(); }
+              function playPause(){ if (audio.paused) audio.play(); else audio.pause(); }
               function next(){ if(!window.__playlist?.length) return; index=(index+1)%window.__playlist.length; loadCurrent(); audio.play(); }
               function prev(){ if(!window.__playlist?.length) return; index=(index-1+window.__playlist.length)%window.__playlist.length; loadCurrent(); audio.play(); }
-              document.getElementById('btn-play')?.addEventListener('click', play);
-              document.getElementById('btn-next')?.addEventListener('click', next);
-              document.getElementById('btn-prev')?.addEventListener('click', prev);
+              hPlay?.addEventListener('click', playPause);
+              hNext?.addEventListener('click', next);
+              hPrev?.addEventListener('click', prev);
 
+              // Tilt gestures stay enabled
               let lastTilt=0;
               window.addEventListener('deviceorientation',(e)=>{
                 if (Math.abs(e.gamma-lastTilt)>50){ if (e.gamma>40) next(); if (e.gamma<-40) prev(); lastTilt=e.gamma; }
