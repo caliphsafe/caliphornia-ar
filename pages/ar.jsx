@@ -20,7 +20,7 @@ export default function ARPage(){
     const tok = u.searchParams.get('tok') || '';
     const sku = u.searchParams.get('sku') || '';
     fetch(`/api/playlist?sku=${encodeURIComponent(sku)}`)
-      .then(r=>r.json()).then(j => setPlaylist(j.tracks || [])); /* CHANGED: tracks */
+      .then(r=>r.json()).then(j => setPlaylist(j.tracks || [])); /* CHANGED earlier */
     (async()=>{
       const ok = await verifyToken(tok, sku);
       setGated(!ok);
@@ -68,7 +68,7 @@ export default function ARPage(){
         <div style={{marginLeft:8, fontWeight:600}}>AR Player</div>
       </div>
 
-      {/* Now Playing (glass overlay) — ADDED */}
+      {/* Now Playing (glass overlay) */}
       <div id="np" className="glass-panel np-card" style={{display:'none'}}>
         <img id="npCover" alt="" />
         <div className="np-text">
@@ -102,7 +102,7 @@ export default function ARPage(){
       <div ref={sceneRef} style={{height:'100vh', background:'#000'}}>
         {ready && !gated && (
           <div dangerouslySetInnerHTML={{__html: `
-            <audio id="player" crossorigin="anonymous"></audio>
+            <audio id="player" crossorigin="anonymous" playsinline></audio>
 
             <button id="start" class="glass-button" style="position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:3;">
               Start AR & Audio
@@ -136,7 +136,7 @@ export default function ARPage(){
 
                 <a-image id="now-title" src="/ui/nowplaying.svg" position="0 0.12 -0.99" width="0.9" height="0.12"></a-image>
 
-                <!-- ADDED: 3D cover + text inside panel -->
+                <!-- 3D cover + text inside panel -->
                 <a-image id="cover3d" src="/ui/cover-fallback.png" position="-0.42 0.08 -0.99" width="0.24" height="0.24"></a-image>
                 <a-entity id="title3d" text="value: ; color: #FFFFFF; width: 1.2; wrapCount: 18"
                           position="-0.12 0.15 -0.99"></a-entity>
@@ -165,7 +165,6 @@ export default function ARPage(){
                     if (np) np.style.display = 'none';
                   }
 
-                  // 3D elements
                   const c3d = document.getElementById('cover3d');
                   const t3d = document.getElementById('title3d');
                   const a3d = document.getElementById('artist3d');
@@ -184,6 +183,16 @@ export default function ARPage(){
                 updateNowPlayingUI(track);
               }
 
+              function ensurePlaylistLoaded(){
+                return new Promise((resolve) => {
+                  if (window.__playlist && window.__playlist.length) return resolve(true);
+                  fetch('/api/playlist' + window.location.search)
+                    .then(r=>r.json())
+                    .then(j => { window.__playlist = j.tracks || []; resolve(true); })
+                    .catch(()=> resolve(true));
+                });
+              }
+
               async function requestMotion(){
                 try{
                   if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
@@ -192,16 +201,17 @@ export default function ARPage(){
                 }catch(e){}
               }
 
-              // Fetch real playlist once page is ready (CHANGED: tracks)
+              // PRELOAD playlist in background (without relying on it)
               fetch('/api/playlist' + window.location.search)
                 .then(r=>r.json())
                 .then(j => { window.__playlist = j.tracks || []; });
 
               document.getElementById('start').addEventListener('click', async () => {
-                await audio.play().catch(()=>{});
-                audio.pause();
-                await requestMotion();
-                loadCurrent();
+                await ensurePlaylistLoaded();   /* CHANGED: wait for tracks */
+                await requestMotion();          /* CHANGED: ask motion */
+                loadCurrent();                  /* CHANGED: set src BEFORE play */
+                try { await audio.play(); } catch(e) {}
+                audio.pause();                  /* unlocks audio policy on iOS */
                 document.getElementById('start').style.display='none';
               });
 
