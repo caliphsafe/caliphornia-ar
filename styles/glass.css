@@ -1,0 +1,74 @@
+/* Apple Tahoe–inspired glassmorphism styles for Caliphornia AR Player */
+
+:root {
+  /* Base glass colors and transparency */
+  --glass-bg: rgba(255, 255, 255, 0.08);
+  --glass-stroke: rgba(255, 255, 255, 0.22);
+  --glass-highlight: rgba(255, 255, 255, 0.35);
+  --glass-button-bg: rgba(255, 255, 255, 0.12);
+  --glass-button-border: rgba(255, 255, 255, 0.25);
+}
+
+/* Main translucent container */
+.glass-panel {
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  background: linear-gradient(180deg, var(--glass-bg), rgba(255,255,255,0.04));
+  border: 1px solid var(--glass-stroke);
+  border-radius: 18px;
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 var(--glass-highlight);
+  color: #fff;
+  transition: all 0.3s ease;
+}
+
+/* Floating chrome or HUD header (like Apple Tahoe panels) */
+.caliphornia-chrome {
+  position: fixed;
+  inset: 12px 12px auto 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 5;
+  padding: 10px 16px;
+  border-radius: 16px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid var(--glass-stroke);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* Button style for Start, Unlock, etc. */
+.glass-button {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  background: var(--glass-button-bg);
+  border: 1px solid var(--glass-button-border);
+  border-radius: 14px;
+  padding: 12px 16px;
+  color: #fff;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.glass-button:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+
+.glass-button:active {
+  background: rgba(255, 255, 255, 0.22);
+  transform: translateY(0);
+}
+
+/* Subtle fade-in for AR overlay panels */
+@keyframes fadeInGlass {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-glass {
+  animation: fadeInGlass 0.6s ease forwards;
+}
