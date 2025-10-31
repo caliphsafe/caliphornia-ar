@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
-import dynamic from 'next/dynamic'; // keep SSR disabled for this page
+import dynamic from 'next/dynamic';
 
 const verifyToken = async (tok, sku) => {
   if (!tok) return false;
@@ -13,6 +13,7 @@ function ARPage(){
   const [ready, setReady] = useState(false);
   const [gated, setGated] = useState(true);
   const [email, setEmail] = useState('');
+  const [status, setStatus] = useState('Loading AR engine…');   // CHANGED
   const sceneRef = useRef(null);
 
   useEffect(() => {
@@ -26,41 +27,56 @@ function ARPage(){
     })();
   }, []);
 
-  // Robust sequential script loader + safety fallback
-  useEffect(() => {
+  // Robust sequential script loader with multi-CDN failover + retry
+  async function loadScripts() {                                 // CHANGED
     if (typeof window === 'undefined') return;
+    setReady(false);
+    setStatus('Loading A-Frame…');
 
     const loadScript = (src) => new Promise((resolve, reject) => {
       const s = document.createElement('script');
       s.src = src;
       s.async = true;
-      s.onload = () => resolve(true);
-      s.onerror = () => reject(new Error('Failed to load ' + src));
+      s.crossOrigin = 'anonymous';
+      s.onload = () => resolve(src);
+      s.onerror = () => reject(new Error('Failed ' + src));
       document.head.appendChild(s);
     });
 
-    (async () => {
-      try {
-        await loadScript('https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe.min.js');
-        await loadScript('https://libs.zappar.com/zappar-aframe/2.2.2/zappar-aframe.js');
-        setReady(true);
-      } catch (e) {
-        // Safety: if AFRAME exists anyway, proceed; otherwise we’ll stay in “loading…” with a hint
-        setTimeout(() => {
-          if (typeof window !== 'undefined' && window.AFRAME) setReady(true);
-        }, 1500);
-      }
-      // Hard fallback: if nothing after 4s but AFRAME exists, proceed
-      setTimeout(() => {
-        if (!ready && typeof window !== 'undefined' && window.AFRAME) setReady(true);
-      }, 4000);
-    })();
-  }, []); // intentionally not depending on `ready`
+    const AFRAME_SOURCES = [
+      'https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe.min.js',
+      'https://unpkg.com/aframe@1.5.0/dist/aframe.min.js'
+    ];
+    const ZAPPAR_SOURCES = [
+      'https://libs.zappar.com/zappar-aframe/2.2.2/zappar-aframe.js',
+      'https://unpkg.com/@zappar/zappar-aframe@2.2.2/dist/zappar-aframe.js'
+    ];
+
+    // Try each source until one works
+    let afOk = false;
+    for (const src of AFRAME_SOURCES) {
+      try { await loadScript(src); afOk = true; setStatus('A-Frame loaded'); break; }
+      catch { setStatus('Retrying A-Frame…'); }
+    }
+    if (!afOk && window.AFRAME) afOk = true;
+    if (!afOk) { setStatus('A-Frame failed. Tap retry.'); return; }
+
+    let zapOk = false;
+    setStatus('Loading Zappar…');
+    for (const src of ZAPPAR_SOURCES) {
+      try { await loadScript(src); zapOk = true; setStatus('Zappar loaded'); break; }
+      catch { setStatus('Retrying Zappar…'); }
+    }
+    if (!zapOk) { setStatus('Zappar failed. Tap retry.'); return; }
+
+    setReady(true);
+  }
+
+  useEffect(() => { loadScripts(); }, []);                       // CHANGED
 
   async function joinMailingList() {
     const res = await fetch('/api/token/mint', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+      method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ email })
     });
     const j = await res.json();
@@ -85,7 +101,7 @@ function ARPage(){
         <div style={{marginLeft:8, fontWeight:600}}>AR Player</div>
       </div>
 
-      {/* Now Playing (glass overlay) — hidden until AR injects content */}
+      {/* Now Playing (overlay) */}
       <div id="np" className="glass-panel np-card" style={{display:'none'}}>
         <img id="npCover" alt="" />
         <div className="np-text">
@@ -96,38 +112,31 @@ function ARPage(){
 
       {/* Email Gate */}
       {gated && (
-        <div style={{
-          position:'fixed', inset:0, display:'grid', placeItems:'center',
-          background:'radial-gradient(ellipse at center, rgba(0,0,0,0.75), rgba(0,0,0,0.9))',
-          zIndex:10
-        }}>
+        <div style={{ position:'fixed', inset:0, display:'grid', placeItems:'center',
+          background:'radial-gradient(ellipse at center, rgba(0,0,0,0.75), rgba(0,0,0,0.9))', zIndex:10 }}>
           <div className="glass-panel" style={{width:320, padding:20}}>
             <h3 style={{margin:'0 0 10px'}}>Join Caliphornia</h3>
             <p style={{opacity:0.9, margin:'0 0 12px'}}>Enter your email to unlock the AR playlist.</p>
-            <input
-              type="email" placeholder="you@domain.com" value={email}
+            <input type="email" placeholder="you@domain.com" value={email}
               onChange={e=>setEmail(e.target.value)}
-              className="glass-button" style={{width:'100%', marginBottom:10}}
-            />
+              className="glass-button" style={{width:'100%', marginBottom:10}}/>
             <button className="glass-button" style={{width:'100%'}} onClick={joinMailingList}>Unlock</button>
             <p style={{opacity:0.6, fontSize:12, marginTop:10}}>Scan your hoodie’s wrist QR to access exclusive drops.</p>
           </div>
         </div>
       )}
 
-      {/* Loading HUD shown whenever AR engine isn't ready */}
+      {/* Loading HUD with retry */}
       {!gated && !ready && (
-        <div style={{
-          position:'fixed', inset:0, display:'grid', placeItems:'center',
-          color:'#9cf', zIndex:4, pointerEvents:'none'
-        }}>
-          <div className="glass-panel" style={{padding:'12px 16px', fontSize:14}}>
-            Loading AR engine…
+        <div style={{ position:'fixed', inset:0, display:'grid', placeItems:'center', zIndex:4 }}>
+          <div className="glass-panel" style={{padding:'12px 16px', fontSize:14, display:'flex', gap:10, alignItems:'center'}}>
+            <span>{status}</span>
+            <button className="glass-button" onClick={loadScripts}>Retry</button>
           </div>
         </div>
       )}
 
-      {/* AR Scene (only when scripts are ready AND gate is passed) */}
+      {/* AR Scene */}
       <div ref={sceneRef} style={{height:'100vh', background:'#000'}}>
         {ready && !gated && (
           <div dangerouslySetInnerHTML={{__html: `
@@ -135,42 +144,33 @@ function ARPage(){
 
             <audio id="player" crossorigin="anonymous" preload="auto" playsinline></audio>
 
-            <button
-              id="start"
-              class="glass-button"
+            <button id="start" class="glass-button"
               style="position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:7;"
-              onclick="window.__startAR&&window.__startAR()"
-            >Start AR & Audio</button>
+              onclick="window.__startAR&&window.__startAR()">
+              Start AR & Audio
+            </button>
 
-            <a-scene
-              renderer="colorManagement: true; physicallyCorrectLights: true"
+            <a-scene renderer="colorManagement: true; physicallyCorrectLights: true"
               zappar="pipeline: cameraPipeline"
               vr-mode-ui="enabled: false"
               device-orientation-permission-ui="enabled: false"
-              embedded
-              style="height:100vh;">
-
+              embedded style="height:100vh;">
               <a-entity id="cameraPipeline"></a-entity>
               <a-entity zappar-permissions-ui></a-entity>
               <a-entity zappar-compatibility-ui></a-entity>
-
               <a-entity id="zapparCamera" camera zappar-camera="userFacing: false;"></a-entity>
 
               <a-entity zappar-instant="placement-mode: true" id="instant">
                 <a-plane id="panel" position="0 0 -1" width="1.2" height="0.72"
                   material="src: /ui/panel.svg; transparent: true;"></a-plane>
-
                 <a-image id="btn-prev" src="/ui/btn-prev.svg" position="-0.35 -0.12 -0.99" width="0.18" height="0.18"></a-image>
                 <a-image id="btn-play" src="/ui/btn-play.svg" position="0 -0.12 -0.99" width="0.18" height="0.18"></a-image>
                 <a-image id="btn-next" src="/ui/btn-next.svg" position="0.35 -0.12 -0.99" width="0.18" height="0.18"></a-image>
 
                 <a-image id="now-title" src="/ui/nowplaying.svg" position="0 0.12 -0.99" width="0.9" height="0.12"></a-image>
-
                 <a-image id="cover3d" src="/ui/cover-fallback.png" position="-0.42 0.08 -0.99" width="0.24" height="0.24"></a-image>
-                <a-entity id="title3d" text="value: ; color: #FFFFFF; width: 1.2; wrapCount: 18"
-                          position="-0.12 0.15 -0.99"></a-entity>
-                <a-entity id="artist3d" text="value: ; color: #DDDDDD; width: 1.2; wrapCount: 22"
-                          position="-0.12 0.05 -0.99"></a-entity>
+                <a-entity id="title3d" text="value: ; color: #FFFFFF; width: 1.2; wrapCount: 18" position="-0.12 0.15 -0.99"></a-entity>
+                <a-entity id="artist3d" text="value: ; color: #DDDDDD; width: 1.2; wrapCount: 22" position="-0.12 0.05 -0.99"></a-entity>
               </a-entity>
             </a-scene>
 
@@ -189,66 +189,52 @@ function ARPage(){
                   const cov = document.getElementById('npCover');
                   const t = document.getElementById('npTitle');
                   const a = document.getElementById('npArtist');
-                  if (track){
-                    if (cov) cov.src = track.cover || '';
-                    if (t) t.textContent = track.title || '';
-                    if (a) a.textContent = track.artist || '';
-                    if (np) np.style.display = 'flex';
-                  } else { if (np) np.style.display = 'none'; }
-                  const c3d = document.getElementById('cover3d');
-                  const t3d = document.getElementById('title3d');
-                  const a3d = document.getElementById('artist3d');
+                  if (track){ if (cov) cov.src = track.cover||''; if (t) t.textContent = track.title||''; if (a) a.textContent = track.artist||''; if (np) np.style.display='flex'; }
+                  else { if (np) np.style.display='none'; }
+                  const c3d=document.getElementById('cover3d'); const t3d=document.getElementById('title3d'); const a3d=document.getElementById('artist3d');
                   if (c3d && track && track.cover) c3d.setAttribute('src', track.cover);
-                  if (t3d) t3d.setAttribute('text', 'value', track?.title || '');
-                  if (a3d) a3d.setAttribute('text', 'value', track?.artist || '');
+                  if (t3d) t3d.setAttribute('text', 'value', track?.title||'');
+                  if (a3d) a3d.setAttribute('text', 'value', track?.artist||'');
                 }catch(e){ log('updateUI fail'); }
               }
 
               function loadCurrent(){
-                const list = window.__playlist || [];
-                const track = list[index];
+                const list = window.__playlist||[]; const track=list[index];
                 if (!track){ log('no track'); return false; }
-                audio.src = track.url || '';
-                audio.load();
-                updateNowPlayingUI(track);
-                log('loaded: '+(track.title||'')); return true;
+                audio.src = track.url||''; audio.load(); updateNowPlayingUI(track); log('loaded: '+(track.title||'')); return true;
               }
 
               function ensurePlaylistLoaded(){
                 return new Promise((resolve) => {
                   if (window.__playlist && window.__playlist.length) return resolve(true);
-                  fetch('/api/playlist' + window.location.search)
+                  fetch('/api/playlist'+window.location.search)
                     .then(r=>r.json())
-                    .then(j => { window.__playlist = j.tracks || []; log('tracks:'+window.__playlist.length); resolve(true); })
+                    .then(j => { window.__playlist = j.tracks||[]; log('tracks:'+window.__playlist.length); resolve(true); })
                     .catch(()=> resolve(false));
                 });
               }
 
               async function requestMotion(){
                 try{
-                  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
-                    const st = await DeviceMotionEvent.requestPermission();
-                    log('motion: '+st); return st === 'granted';
+                  if (typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){
+                    const st = await DeviceMotionEvent.requestPermission(); log('motion: '+st); return st==='granted';
                   }
                 }catch(e){ log('motion denied'); }
                 return true;
               }
-
               async function requestCamera(){
                 try{
                   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio:false });
-                    stream.getTracks().forEach(t => t.stop());
-                    log('camera: granted'); return true;
+                    const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' }, audio:false });
+                    stream.getTracks().forEach(t=>t.stop()); log('camera: granted'); return true;
                   } else { log('no mediaDevices'); }
                 }catch(e){ log('camera: denied'); }
                 return false;
               }
 
-              // Preload playlist opportunistically
-              fetch('/api/playlist' + window.location.search)
+              fetch('/api/playlist'+window.location.search)
                 .then(r=>r.json())
-                .then(j => { window.__playlist = j.tracks || []; log('preload tracks:'+window.__playlist.length); });
+                .then(j => { window.__playlist = j.tracks||[]; log('preload tracks:'+window.__playlist.length); });
 
               window.__startAR = async () => {
                 log('start tap'); setBtn('Loading…');
@@ -258,8 +244,7 @@ function ARPage(){
                 if (!gotList){ setBtn('Retry: Load Playlist'); return; }
                 if (!camOK){ setBtn('Allow Camera to Continue'); return; }
                 const ok = loadCurrent(); if (!ok){ setBtn('No Tracks — Retry'); return; }
-                let audioOK = false;
-                try { await audio.play(); audioOK = true; log('audio: play ok'); } catch(e){ log('audio: play blocked'); }
+                let audioOK=false; try{ await audio.play(); audioOK=true; log('audio: play ok'); }catch(e){ log('audio: play blocked'); }
                 if (!audioOK){ setBtn('Tap to Unmute / Play'); return; }
                 startBtn.style.display='none';
               };
@@ -271,13 +256,9 @@ function ARPage(){
               document.getElementById('btn-next')?.addEventListener('click', next);
               document.getElementById('btn-prev')?.addEventListener('click', prev);
 
-              let lastTilt = 0;
-              window.addEventListener('deviceorientation', (e)=>{
-                if (Math.abs(e.gamma - lastTilt) > 50){
-                  if (e.gamma > 40) next();
-                  if (e.gamma < -40) prev();
-                  lastTilt = e.gamma;
-                }
+              let lastTilt=0;
+              window.addEventListener('deviceorientation',(e)=>{
+                if (Math.abs(e.gamma-lastTilt)>50){ if (e.gamma>40) next(); if (e.gamma<-40) prev(); lastTilt=e.gamma; }
               });
             </script>
           `}}/>
