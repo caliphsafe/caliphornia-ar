@@ -72,3 +72,96 @@
 .fade-glass {
   animation: fadeInGlass 0.6s ease forwards;
 }
+
+/* -----------------------------------------------------------
+   Now Playing glass card (Apple Tahoe style for AR overlay)
+----------------------------------------------------------- */
+
+.np-card {
+  position: fixed;
+  right: 12px;
+  bottom: 90px;               /* sits above Start button */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  z-index: 4;
+  max-width: min(86vw, 360px);
+  background: var(--glass-bg);
+  backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid var(--glass-stroke);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 var(--glass-highlight);
+  animation: fadeInGlass 0.5s ease forwards;
+}
+
+.np-card img {
+  width: 54px;
+  height: 54px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid rgba(255,255,255,0.25);
+}
+
+.np-text {
+  min-width: 0;
+}
+
+.np-title {
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-artist {
+  opacity: 0.85;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* -----------------------------------------------------------
+   Soft glow gradient + vignette behind AR UI (CSS-only)
+   - Renders above camera video but below glass UI
+   - Doesn't block taps
+----------------------------------------------------------- */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2; /* below np-card (4), chrome (5), buttons (3) */
+
+  /* Layer 1: cool blue top glow */
+  background:
+    radial-gradient(1200px 800px at 50% 25%,
+      rgba(72, 180, 255, 0.10),
+      rgba(72, 180, 255, 0.00) 60%) ,
+
+    /* Layer 2: warm orange bottom glow */
+    radial-gradient(900px 700px at 50% 110%,
+      rgba(255, 120, 80, 0.10),
+      rgba(255, 120, 80, 0.00) 60%) ,
+
+    /* Layer 3: soft vignette */
+    radial-gradient(120% 120% at 50% 50%,
+      rgba(0,0,0,0) 40%,
+      rgba(0,0,0,0.25) 85%,
+      rgba(0,0,0,0.45) 100%);
+  mix-blend-mode: normal;
+}
+
+/* Elevate glass UI slightly above glow */
+.glass-panel,
+.glass-button,
+.caliphornia-chrome,
+.np-card {
+  position: relative;
+  z-index: 5;
+}
