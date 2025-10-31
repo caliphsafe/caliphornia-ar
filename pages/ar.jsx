@@ -47,9 +47,9 @@ function ARPage(){
       '/vendor/aframe/aframe.min.js?v=1' // ← local file only
     ];
     const ZAPPAR_SOURCES = [
-      'https://libs.zappar.com/zappar-aframe/2.2.2/zappar-aframe.js',
-      'https://unpkg.com/@zappar/zappar-aframe@2.2.2/dist/zappar-aframe.js'
+      '/vendor/zappar/zappar-aframe.js?v=1'  // ← local Zappar build only
     ];
+
 
     let afOk = false;
     for (const src of AFRAME_SOURCES) {
