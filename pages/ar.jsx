@@ -20,7 +20,7 @@ export default function ARPage(){
     const tok = u.searchParams.get('tok') || '';
     const sku = u.searchParams.get('sku') || '';
     fetch(`/api/playlist?sku=${encodeURIComponent(sku)}`)
-      .then(r=>r.json()).then(j => setPlaylist(j.urls || []));
+      .then(r=>r.json()).then(j => setPlaylist(j.tracks || [])); /* CHANGED: tracks */
     (async()=>{
       const ok = await verifyToken(tok, sku);
       setGated(!ok);
@@ -66,6 +66,15 @@ export default function ARPage(){
       <div className="caliphornia-chrome glass-panel" style={{padding:10}}>
         <img src="/ui/caliphornia-logo.svg" alt="Caliphornia" height={22}/>
         <div style={{marginLeft:8, fontWeight:600}}>AR Player</div>
+      </div>
+
+      {/* Now Playing (glass overlay) — ADDED */}
+      <div id="np" className="glass-panel np-card" style={{display:'none'}}>
+        <img id="npCover" alt="" />
+        <div className="np-text">
+          <div id="npTitle" className="np-title">—</div>
+          <div id="npArtist" className="np-artist">—</div>
+        </div>
       </div>
 
       {/* Email Gate */}
@@ -126,14 +135,54 @@ export default function ARPage(){
                 <a-image id="btn-next" src="/ui/btn-next.svg" position="0.35 -0.12 -0.99" width="0.18" height="0.18"></a-image>
 
                 <a-image id="now-title" src="/ui/nowplaying.svg" position="0 0.12 -0.99" width="0.9" height="0.12"></a-image>
+
+                <!-- ADDED: 3D cover + text inside panel -->
+                <a-image id="cover3d" src="/ui/cover-fallback.png" position="-0.42 0.08 -0.99" width="0.24" height="0.24"></a-image>
+                <a-entity id="title3d" text="value: ; color: #FFFFFF; width: 1.2; wrapCount: 18"
+                          position="-0.12 0.15 -0.99"></a-entity>
+                <a-entity id="artist3d" text="value: ; color: #DDDDDD; width: 1.2; wrapCount: 22"
+                          position="-0.12 0.05 -0.99"></a-entity>
               </a-entity>
             </a-scene>
 
             <script>
-              const playlist = ${JSON.stringify([])}; // Will be overridden after load
               let index = 0;
               const audio = document.getElementById('player');
-              function loadCurrent(){ audio.src = window.__playlist?.[index] || ''; audio.load(); }
+
+              function updateNowPlayingUI(track){
+                try{
+                  const np = document.getElementById('np');
+                  const cov = document.getElementById('npCover');
+                  const t = document.getElementById('npTitle');
+                  const a = document.getElementById('npArtist');
+
+                  if (track){
+                    if (cov) cov.src = track.cover || '';
+                    if (t) t.textContent = track.title || '';
+                    if (a) a.textContent = track.artist || '';
+                    if (np) np.style.display = 'flex';
+                  } else {
+                    if (np) np.style.display = 'none';
+                  }
+
+                  // 3D elements
+                  const c3d = document.getElementById('cover3d');
+                  const t3d = document.getElementById('title3d');
+                  const a3d = document.getElementById('artist3d');
+                  if (c3d && track && track.cover) c3d.setAttribute('src', track.cover);
+                  if (t3d) t3d.setAttribute('text', 'value', track?.title || '');
+                  if (a3d) a3d.setAttribute('text', 'value', track?.artist || '');
+                }catch(e){}
+              }
+
+              function loadCurrent(){
+                const list = window.__playlist || [];
+                const track = list[index];
+                if (!track) return;
+                audio.src = track.url || '';
+                audio.load();
+                updateNowPlayingUI(track);
+              }
 
               async function requestMotion(){
                 try{
@@ -143,10 +192,10 @@ export default function ARPage(){
                 }catch(e){}
               }
 
-              // Fetch real playlist once page is ready
+              // Fetch real playlist once page is ready (CHANGED: tracks)
               fetch('/api/playlist' + window.location.search)
                 .then(r=>r.json())
-                .then(j => { window.__playlist = j.urls || []; });
+                .then(j => { window.__playlist = j.tracks || []; });
 
               document.getElementById('start').addEventListener('click', async () => {
                 await audio.play().catch(()=>{});
