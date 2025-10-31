@@ -13,7 +13,7 @@ function ARPage(){
   const [ready, setReady] = useState(false);
   const [gated, setGated] = useState(true);
   const [email, setEmail] = useState('');
-  const [status, setStatus] = useState('Loading AR engine…');   // CHANGED
+  const [status, setStatus] = useState('Loading AR engine…');
   const sceneRef = useRef(null);
 
   useEffect(() => {
@@ -27,8 +27,8 @@ function ARPage(){
     })();
   }, []);
 
-  // Robust sequential script loader with multi-CDN failover + retry
-  async function loadScripts() {                                 // CHANGED
+  // Loader (local A-Frame only)
+  async function loadScripts() {
     if (typeof window === 'undefined') return;
     setReady(false);
     setStatus('Loading A-Frame…');
@@ -44,22 +44,20 @@ function ARPage(){
     });
 
     const AFRAME_SOURCES = [
-      'https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe.min.js',
-      'https://unpkg.com/aframe@1.5.0/dist/aframe.min.js'
+      '/vendor/aframe/aframe.min.js?v=1' // ← local file only
     ];
     const ZAPPAR_SOURCES = [
       'https://libs.zappar.com/zappar-aframe/2.2.2/zappar-aframe.js',
       'https://unpkg.com/@zappar/zappar-aframe@2.2.2/dist/zappar-aframe.js'
     ];
 
-    // Try each source until one works
     let afOk = false;
     for (const src of AFRAME_SOURCES) {
       try { await loadScript(src); afOk = true; setStatus('A-Frame loaded'); break; }
-      catch { setStatus('Retrying A-Frame…'); }
+      catch { setStatus('A-Frame failed. Tap retry.'); }
     }
     if (!afOk && window.AFRAME) afOk = true;
-    if (!afOk) { setStatus('A-Frame failed. Tap retry.'); return; }
+    if (!afOk) return;
 
     let zapOk = false;
     setStatus('Loading Zappar…');
@@ -72,7 +70,7 @@ function ARPage(){
     setReady(true);
   }
 
-  useEffect(() => { loadScripts(); }, []);                       // CHANGED
+  useEffect(() => { loadScripts(); }, []);
 
   async function joinMailingList() {
     const res = await fetch('/api/token/mint', {
