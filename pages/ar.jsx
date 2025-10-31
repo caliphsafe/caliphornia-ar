@@ -27,17 +27,22 @@ export default function ARPage(){
     })();
   }, []);
 
+  // CHANGED: load scripts sequentially to avoid race (A-Frame first, then Zappar)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const s1 = document.createElement('script');
     s1.src = 'https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe.min.js';
-    const s2 = document.createElement('script');
-    s2.src = 'https://libs.zappar.com/zappar-aframe/2.2.2/zappar-aframe.js';
-    const onLoad = () => setReady(true);
-    s2.onload = onLoad;
+    s1.onload = () => {
+      const s2 = document.createElement('script');
+      s2.src = 'https://libs.zappar.com/zappar-aframe/2.2.2/zappar-aframe.js';
+      s2.onload = () => setReady(true);
+      document.head.appendChild(s2);
+    };
     document.head.appendChild(s1);
-    document.head.appendChild(s2);
-    return () => { try{s1.remove();s2.remove();}catch(e){} };
+    return () => {
+      try { s1.remove(); } catch(e){}
+      // s2 is block-scoped; best-effort clean not strictly needed for a single page app
+    };
   }, []);
 
   async function joinMailingList() {
@@ -102,6 +107,9 @@ export default function ARPage(){
       <div ref={sceneRef} style={{height:'100vh', background:'#000'}}>
         {ready && !gated && (
           <div dangerouslySetInnerHTML={{__html: `
+            <!-- DEBUG overlay (tiny, non-blocking) -->
+            <pre id="dbg" style="position:fixed;left:8px;bottom:8px;z-index:6;color:#9cf;background:rgba(0,0,0,.35);padding:6px 8px;border-radius:8px;max-width:70vw;max-height:40vh;overflow:auto;font-size:10px;display:none"></pre>
+
             <audio id="player" crossorigin="anonymous" preload="auto" playsinline></audio>
 
             <button
@@ -151,6 +159,10 @@ export default function ARPage(){
             </a-scene>
 
             <script>
+              const dbg = document.getElementById('dbg');
+              function log(msg){ try{ dbg.style.display='block'; dbg.textContent += (msg+'\\n'); }catch(e){} }
+              window.onerror = function(m, s, l, c, e){ log('ERR: '+m); };
+
               let index = 0;
               const audio = document.getElementById('player');
 
@@ -176,16 +188,17 @@ export default function ARPage(){
                   if (c3d && track && track.cover) c3d.setAttribute('src', track.cover);
                   if (t3d) t3d.setAttribute('text', 'value', track?.title || '');
                   if (a3d) a3d.setAttribute('text', 'value', track?.artist || '');
-                }catch(e){}
+                }catch(e){ log('updateUI fail'); }
               }
 
               function loadCurrent(){
                 const list = window.__playlist || [];
                 const track = list[index];
-                if (!track) return;
+                if (!track){ log('no track'); return; }
                 audio.src = track.url || '';
                 audio.load();
                 updateNowPlayingUI(track);
+                log('loaded: '+(track.title||''));
               }
 
               function ensurePlaylistLoaded(){
@@ -193,8 +206,8 @@ export default function ARPage(){
                   if (window.__playlist && window.__playlist.length) return resolve(true);
                   fetch('/api/playlist' + window.location.search)
                     .then(r=>r.json())
-                    .then(j => { window.__playlist = j.tracks || []; resolve(true); })
-                    .catch(()=> resolve(true));
+                    .then(j => { window.__playlist = j.tracks || []; log('tracks:'+window.__playlist.length); resolve(true); })
+                    .catch((e)=> { log('playlist fetch fail'); resolve(true); });
                 });
               }
 
@@ -202,47 +215,48 @@ export default function ARPage(){
                 try{
                   if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
                     await DeviceMotionEvent.requestPermission();
+                    log('motion ok');
                   }
-                }catch(e){}
+                }catch(e){ log('motion denied'); }
               }
 
               async function requestCamera(){
                 try{
-                  // Explicit user-gesture camera request for iOS/Safari
                   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
                     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-                    // Immediately stop the temp stream; Zappar will manage camera
                     stream.getTracks().forEach(t => t.stop());
+                    log('camera ok');
+                  } else {
+                    log('no mediaDevices');
                   }
-                }catch(e){}
+                }catch(e){ log('camera denied'); }
               }
 
               // Preload playlist opportunistically
               fetch('/api/playlist' + window.location.search)
                 .then(r=>r.json())
-                .then(j => { window.__playlist = j.tracks || []; });
+                .then(j => { window.__playlist = j.tracks || []; log('preload tracks:'+window.__playlist.length); });
 
-              // Global start handler bound inline to guarantee gesture binding
+              // Global start handler
               window.__startAR = async () => {
+                log('start tap');
                 await ensurePlaylistLoaded();
                 await requestCamera();
                 await requestMotion();
                 loadCurrent();
-                try { await audio.play(); } catch(e) {}
-                audio.pause(); // unlocks audio autoplay policy on iOS
+                try { await audio.play(); log('audio play ok'); } catch(e) { log('audio play blocked'); }
+                audio.pause();
                 const btn = document.getElementById('start');
                 if (btn) btn.style.display='none';
               };
 
               function play(){ audio.play(); }
-              function next(){ if(!window.__playlist?.length) return; index=(index+1)%window.__playlist.length; loadCurrent(); audio.play(); ping('next'); }
-              function prev(){ if(!window.__playlist?.length) return; index=(index-1+window.__playlist.length)%window.__playlist.length; loadCurrent(); audio.play(); ping('prev'); }
+              function next(){ if(!window.__playlist?.length) return; index=(index+1)%window.__playlist.length; loadCurrent(); audio.play(); }
+              function prev(){ if(!window.__playlist?.length) return; index=(index-1+window.__playlist.length)%window.__playlist.length; loadCurrent(); audio.play(); }
 
-              const tap = (id, fn) =>
-                document.getElementById(id)?.addEventListener('click', fn);
-              tap('btn-play', play);
-              tap('btn-next', next);
-              tap('btn-prev', prev);
+              document.getElementById('btn-play')?.addEventListener('click', play);
+              document.getElementById('btn-next')?.addEventListener('click', next);
+              document.getElementById('btn-prev')?.addEventListener('click', prev);
 
               let lastTilt = 0;
               window.addEventListener('deviceorientation', (e)=>{
@@ -252,11 +266,6 @@ export default function ARPage(){
                   lastTilt = e.gamma;
                 }
               });
-
-              function ping(action){
-                const body = { action, index, sku: new URL(location.href).searchParams.get('sku') };
-                navigator.sendBeacon('/api/analytics', JSON.stringify(body));
-              }
             </script>
           `}}/>
         )}
