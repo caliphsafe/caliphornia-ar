@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
-import dynamic from 'next/dynamic'; /* ADDED */
+import dynamic from 'next/dynamic'; // keep SSR disabled for this page
 
 const verifyToken = async (tok, sku) => {
   if (!tok) return false;
@@ -9,41 +9,53 @@ const verifyToken = async (tok, sku) => {
   return j.ok === true;
 };
 
-function ARPage(){ /* CHANGED: no default here */
+function ARPage(){
   const [ready, setReady] = useState(false);
   const [gated, setGated] = useState(true);
   const [email, setEmail] = useState('');
-  const [playlist, setPlaylist] = useState([]);
   const sceneRef = useRef(null);
 
   useEffect(() => {
     const u = new URL(window.location.href);
     const tok = u.searchParams.get('tok') || '';
     const sku = u.searchParams.get('sku') || '';
-    fetch(`/api/playlist?sku=${encodeURIComponent(sku)}`)
-      .then(r=>r.json()).then(j => setPlaylist(j.tracks || []));
+    fetch(`/api/playlist?sku=${encodeURIComponent(sku)}`).catch(()=>{});
     (async()=>{
       const ok = await verifyToken(tok, sku);
       setGated(!ok);
     })();
   }, []);
 
-  // Load scripts sequentially (A-Frame, then Zappar)
+  // Robust sequential script loader + safety fallback
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const s1 = document.createElement('script');
-    s1.src = 'https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe.min.js';
-    s1.onload = () => {
-      const s2 = document.createElement('script');
-      s2.src = 'https://libs.zappar.com/zappar-aframe/2.2.2/zappar-aframe.js';
-      s2.onload = () => setReady(true);
-      document.head.appendChild(s2);
-    };
-    document.head.appendChild(s1);
-    return () => {
-      try { s1.remove(); } catch(e){}
-    };
-  }, []);
+
+    const loadScript = (src) => new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = true;
+      s.onload = () => resolve(true);
+      s.onerror = () => reject(new Error('Failed to load ' + src));
+      document.head.appendChild(s);
+    });
+
+    (async () => {
+      try {
+        await loadScript('https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe.min.js');
+        await loadScript('https://libs.zappar.com/zappar-aframe/2.2.2/zappar-aframe.js');
+        setReady(true);
+      } catch (e) {
+        // Safety: if AFRAME exists anyway, proceed; otherwise we’ll stay in “loading…” with a hint
+        setTimeout(() => {
+          if (typeof window !== 'undefined' && window.AFRAME) setReady(true);
+        }, 1500);
+      }
+      // Hard fallback: if nothing after 4s but AFRAME exists, proceed
+      setTimeout(() => {
+        if (!ready && typeof window !== 'undefined' && window.AFRAME) setReady(true);
+      }, 4000);
+    })();
+  }, []); // intentionally not depending on `ready`
 
   async function joinMailingList() {
     const res = await fetch('/api/token/mint', {
@@ -67,13 +79,13 @@ function ARPage(){ /* CHANGED: no default here */
         <link rel="preload" href="/ui/panel.svg" as="image" />
       </Head>
 
-      {/* Caliphornia top chrome */}
+      {/* Top chrome */}
       <div className="caliphornia-chrome glass-panel" style={{padding:10}}>
         <img src="/ui/caliphornia-logo.svg" alt="Caliphornia" height={22}/>
         <div style={{marginLeft:8, fontWeight:600}}>AR Player</div>
       </div>
 
-      {/* Now Playing (glass overlay) */}
+      {/* Now Playing (glass overlay) — hidden until AR injects content */}
       <div id="np" className="glass-panel np-card" style={{display:'none'}}>
         <img id="npCover" alt="" />
         <div className="np-text">
@@ -103,11 +115,22 @@ function ARPage(){ /* CHANGED: no default here */
         </div>
       )}
 
-      {/* AR Scene */}
+      {/* Loading HUD shown whenever AR engine isn't ready */}
+      {!gated && !ready && (
+        <div style={{
+          position:'fixed', inset:0, display:'grid', placeItems:'center',
+          color:'#9cf', zIndex:4, pointerEvents:'none'
+        }}>
+          <div className="glass-panel" style={{padding:'12px 16px', fontSize:14}}>
+            Loading AR engine…
+          </div>
+        </div>
+      )}
+
+      {/* AR Scene (only when scripts are ready AND gate is passed) */}
       <div ref={sceneRef} style={{height:'100vh', background:'#000'}}>
         {ready && !gated && (
           <div dangerouslySetInnerHTML={{__html: `
-            <!-- DEBUG overlay (always visible) -->
             <pre id="dbg" style="position:fixed;left:8px;bottom:8px;z-index:6;color:#9cf;background:rgba(0,0,0,.45);padding:6px 8px;border-radius:8px;max-width:70vw;max-height:40vh;overflow:auto;font-size:10px;display:block"></pre>
 
             <audio id="player" crossorigin="anonymous" preload="auto" playsinline></audio>
@@ -117,9 +140,7 @@ function ARPage(){ /* CHANGED: no default here */
               class="glass-button"
               style="position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:7;"
               onclick="window.__startAR&&window.__startAR()"
-            >
-              Start AR & Audio
-            </button>
+            >Start AR & Audio</button>
 
             <a-scene
               renderer="colorManagement: true; physicallyCorrectLights: true"
@@ -135,21 +156,16 @@ function ARPage(){ /* CHANGED: no default here */
 
               <a-entity id="zapparCamera" camera zappar-camera="userFacing: false;"></a-entity>
 
-              <!-- World-tracked anchor -->
               <a-entity zappar-instant="placement-mode: true" id="instant">
-                <!-- Glass panel card -->
                 <a-plane id="panel" position="0 0 -1" width="1.2" height="0.72"
-                  material="src: /ui/panel.svg; transparent: true;">
-                </a-plane>
+                  material="src: /ui/panel.svg; transparent: true;"></a-plane>
 
-                <!-- Buttons -->
                 <a-image id="btn-prev" src="/ui/btn-prev.svg" position="-0.35 -0.12 -0.99" width="0.18" height="0.18"></a-image>
                 <a-image id="btn-play" src="/ui/btn-play.svg" position="0 -0.12 -0.99" width="0.18" height="0.18"></a-image>
                 <a-image id="btn-next" src="/ui/btn-next.svg" position="0.35 -0.12 -0.99" width="0.18" height="0.18"></a-image>
 
                 <a-image id="now-title" src="/ui/nowplaying.svg" position="0 0.12 -0.99" width="0.9" height="0.12"></a-image>
 
-                <!-- 3D cover + text inside panel -->
                 <a-image id="cover3d" src="/ui/cover-fallback.png" position="-0.42 0.08 -0.99" width="0.24" height="0.24"></a-image>
                 <a-entity id="title3d" text="value: ; color: #FFFFFF; width: 1.2; wrapCount: 18"
                           position="-0.12 0.15 -0.99"></a-entity>
@@ -161,8 +177,8 @@ function ARPage(){ /* CHANGED: no default here */
             <script>
               const dbg = document.getElementById('dbg');
               const startBtn = document.getElementById('start');
-              function log(msg){ try{ dbg.textContent += (msg+'\\n'); }catch(e){} }
-              function setBtn(txt){ try{ startBtn.textContent = txt; }catch(e){} }
+              function log(m){ try{ dbg.textContent += (m+'\\n'); }catch(e){} }
+              function setBtn(t){ try{ startBtn.textContent = t; }catch(e){} }
 
               let index = 0;
               const audio = document.getElementById('player');
@@ -173,16 +189,12 @@ function ARPage(){ /* CHANGED: no default here */
                   const cov = document.getElementById('npCover');
                   const t = document.getElementById('npTitle');
                   const a = document.getElementById('npArtist');
-
                   if (track){
                     if (cov) cov.src = track.cover || '';
                     if (t) t.textContent = track.title || '';
                     if (a) a.textContent = track.artist || '';
                     if (np) np.style.display = 'flex';
-                  } else {
-                    if (np) np.style.display = 'none';
-                  }
-
+                  } else { if (np) np.style.display = 'none'; }
                   const c3d = document.getElementById('cover3d');
                   const t3d = document.getElementById('title3d');
                   const a3d = document.getElementById('artist3d');
@@ -199,8 +211,7 @@ function ARPage(){ /* CHANGED: no default here */
                 audio.src = track.url || '';
                 audio.load();
                 updateNowPlayingUI(track);
-                log('loaded: '+(track.title||''));
-                return true;
+                log('loaded: '+(track.title||'')); return true;
               }
 
               function ensurePlaylistLoaded(){
@@ -209,7 +220,7 @@ function ARPage(){ /* CHANGED: no default here */
                   fetch('/api/playlist' + window.location.search)
                     .then(r=>r.json())
                     .then(j => { window.__playlist = j.tracks || []; log('tracks:'+window.__playlist.length); resolve(true); })
-                    .catch((e)=> { log('playlist fetch fail'); resolve(false); });
+                    .catch(()=> resolve(false));
                 });
               }
 
@@ -217,23 +228,19 @@ function ARPage(){ /* CHANGED: no default here */
                 try{
                   if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
                     const st = await DeviceMotionEvent.requestPermission();
-                    log('motion: '+st);
-                    return st === 'granted';
+                    log('motion: '+st); return st === 'granted';
                   }
                 }catch(e){ log('motion denied'); }
-                return true; // non-iOS
+                return true;
               }
 
               async function requestCamera(){
                 try{
                   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio:false });
                     stream.getTracks().forEach(t => t.stop());
-                    log('camera: granted');
-                    return true;
-                  } else {
-                    log('no mediaDevices');
-                  }
+                    log('camera: granted'); return true;
+                  } else { log('no mediaDevices'); }
                 }catch(e){ log('camera: denied'); }
                 return false;
               }
@@ -243,37 +250,23 @@ function ARPage(){ /* CHANGED: no default here */
                 .then(r=>r.json())
                 .then(j => { window.__playlist = j.tracks || []; log('preload tracks:'+window.__playlist.length); });
 
-              // Global start handler (only hide button when both succeed)
               window.__startAR = async () => {
-                log('start tap');
-                setBtn('Loading…');
-
+                log('start tap'); setBtn('Loading…');
                 const gotList = await ensurePlaylistLoaded();
                 const camOK = await requestCamera();
                 const motOK = await requestMotion();
-
-                if (!gotList) { setBtn('Retry: Load Playlist'); return; }
-                if (!camOK) { setBtn('Allow Camera to Continue'); return; }
-
-                const ok = loadCurrent();
-                if (!ok) { setBtn('No Tracks — Retry'); return; }
-
+                if (!gotList){ setBtn('Retry: Load Playlist'); return; }
+                if (!camOK){ setBtn('Allow Camera to Continue'); return; }
+                const ok = loadCurrent(); if (!ok){ setBtn('No Tracks — Retry'); return; }
                 let audioOK = false;
-                try { await audio.play(); audioOK = true; log('audio: play ok'); } catch(e) { log('audio: play blocked'); }
-
-                if (!audioOK){
-                  setBtn('Tap to Unmute / Play');
-                  return;
-                }
-
-                // Success — hide button
+                try { await audio.play(); audioOK = true; log('audio: play ok'); } catch(e){ log('audio: play blocked'); }
+                if (!audioOK){ setBtn('Tap to Unmute / Play'); return; }
                 startBtn.style.display='none';
               };
 
               function play(){ audio.play(); }
               function next(){ if(!window.__playlist?.length) return; index=(index+1)%window.__playlist.length; loadCurrent(); audio.play(); }
               function prev(){ if(!window.__playlist?.length) return; index=(index-1+window.__playlist.length)%window.__playlist.length; loadCurrent(); audio.play(); }
-
               document.getElementById('btn-play')?.addEventListener('click', play);
               document.getElementById('btn-next')?.addEventListener('click', next);
               document.getElementById('btn-prev')?.addEventListener('click', prev);
@@ -322,5 +315,4 @@ function ARPage(){ /* CHANGED: no default here */
   );
 }
 
-/* ADDED: disable SSR for this page (client-only AR) */
 export default dynamic(() => Promise.resolve(ARPage), { ssr: false });
