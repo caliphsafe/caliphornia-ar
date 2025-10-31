@@ -1,3 +1,194 @@
+// ...top of file unchanged...
+
+      {/* AR Scene */}
+      <div ref={sceneRef} style={{height:'100vh', background:'#000'}}>
+        {ready && !gated && (
+          <div dangerouslySetInnerHTML={{__html: `
+            <!-- DEBUG overlay (always visible) -->
+            <pre id="dbg" style="position:fixed;left:8px;bottom:8px;z-index:6;color:#9cf;background:rgba(0,0,0,.45);padding:6px 8px;border-radius:8px;max-width:70vw;max-height:40vh;overflow:auto;font-size:10px;display:block"></pre>
+
+            <audio id="player" crossorigin="anonymous" preload="auto" playsinline></audio>
+
+            <button
+              id="start"
+              class="glass-button"
+              style="position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:7;"
+              onclick="window.__startAR&&window.__startAR()"
+            >
+              Start AR & Audio
+            </button>
+
+            <a-scene
+              renderer="colorManagement: true; physicallyCorrectLights: true"
+              zappar="pipeline: cameraPipeline"
+              vr-mode-ui="enabled: false"
+              device-orientation-permission-ui="enabled: false"
+              embedded
+              style="height:100vh;">
+
+              <a-entity id="cameraPipeline"></a-entity>
+              <a-entity zappar-permissions-ui></a-entity>
+              <a-entity zappar-compatibility-ui></a-entity>
+
+              <a-entity id="zapparCamera" camera zappar-camera="userFacing: false;"></a-entity>
+
+              <!-- World-tracked anchor -->
+              <a-entity zappar-instant="placement-mode: true" id="instant">
+                <!-- Glass panel card -->
+                <a-plane id="panel" position="0 0 -1" width="1.2" height="0.72"
+                  material="src: /ui/panel.svg; transparent: true;">
+                </a-plane>
+
+                <!-- Buttons -->
+                <a-image id="btn-prev" src="/ui/btn-prev.svg" position="-0.35 -0.12 -0.99" width="0.18" height="0.18"></a-image>
+                <a-image id="btn-play" src="/ui/btn-play.svg" position="0 -0.12 -0.99" width="0.18" height="0.18"></a-image>
+                <a-image id="btn-next" src="/ui/btn-next.svg" position="0.35 -0.12 -0.99" width="0.18" height="0.18"></a-image>
+
+                <a-image id="now-title" src="/ui/nowplaying.svg" position="0 0.12 -0.99" width="0.9" height="0.12"></a-image>
+
+                <!-- 3D cover + text inside panel -->
+                <a-image id="cover3d" src="/ui/cover-fallback.png" position="-0.42 0.08 -0.99" width="0.24" height="0.24"></a-image>
+                <a-entity id="title3d" text="value: ; color: #FFFFFF; width: 1.2; wrapCount: 18"
+                          position="-0.12 0.15 -0.99"></a-entity>
+                <a-entity id="artist3d" text="value: ; color: #DDDDDD; width: 1.2; wrapCount: 22"
+                          position="-0.12 0.05 -0.99"></a-entity>
+              </a-entity>
+            </a-scene>
+
+            <script>
+              const dbg = document.getElementById('dbg');
+              const startBtn = document.getElementById('start');
+              function log(msg){ try{ dbg.textContent += (msg+'\\n'); }catch(e){} }
+              function setBtn(txt){ try{ startBtn.textContent = txt; }catch(e){} }
+
+              let index = 0;
+              const audio = document.getElementById('player');
+
+              function updateNowPlayingUI(track){
+                try{
+                  const np = document.getElementById('np');
+                  const cov = document.getElementById('npCover');
+                  const t = document.getElementById('npTitle');
+                  const a = document.getElementById('npArtist');
+
+                  if (track){
+                    if (cov) cov.src = track.cover || '';
+                    if (t) t.textContent = track.title || '';
+                    if (a) a.textContent = track.artist || '';
+                    if (np) np.style.display = 'flex';
+                  } else {
+                    if (np) np.style.display = 'none';
+                  }
+
+                  const c3d = document.getElementById('cover3d');
+                  const t3d = document.getElementById('title3d');
+                  const a3d = document.getElementById('artist3d');
+                  if (c3d && track && track.cover) c3d.setAttribute('src', track.cover);
+                  if (t3d) t3d.setAttribute('text', 'value', track?.title || '');
+                  if (a3d) a3d.setAttribute('text', 'value', track?.artist || '');
+                }catch(e){ log('updateUI fail'); }
+              }
+
+              function loadCurrent(){
+                const list = window.__playlist || [];
+                const track = list[index];
+                if (!track){ log('no track'); return false; }
+                audio.src = track.url || '';
+                audio.load();
+                updateNowPlayingUI(track);
+                log('loaded: '+(track.title||''));
+                return true;
+              }
+
+              function ensurePlaylistLoaded(){
+                return new Promise((resolve) => {
+                  if (window.__playlist && window.__playlist.length) return resolve(true);
+                  fetch('/api/playlist' + window.location.search)
+                    .then(r=>r.json())
+                    .then(j => { window.__playlist = j.tracks || []; log('tracks:'+window.__playlist.length); resolve(true); })
+                    .catch((e)=> { log('playlist fetch fail'); resolve(false); });
+                });
+              }
+
+              async function requestMotion(){
+                try{
+                  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
+                    const st = await DeviceMotionEvent.requestPermission();
+                    log('motion: '+st);
+                    return st === 'granted';
+                  }
+                }catch(e){ log('motion denied'); }
+                return true; // non-iOS
+              }
+
+              async function requestCamera(){
+                try{
+                  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+                    stream.getTracks().forEach(t => t.stop());
+                    log('camera: granted');
+                    return true;
+                  } else {
+                    log('no mediaDevices');
+                  }
+                }catch(e){ log('camera: denied'); }
+                return false;
+              }
+
+              // Preload playlist opportunistically
+              fetch('/api/playlist' + window.location.search)
+                .then(r=>r.json())
+                .then(j => { window.__playlist = j.tracks || []; log('preload tracks:'+window.__playlist.length); });
+
+              // Global start handler (only hide button when both succeed)
+              window.__startAR = async () => {
+                log('start tap');
+                setBtn('Loading…');
+
+                const gotList = await ensurePlaylistLoaded();
+                const camOK = await requestCamera();
+                const motOK = await requestMotion();
+
+                if (!gotList) { setBtn('Retry: Load Playlist'); return; }
+                if (!camOK) { setBtn('Allow Camera to Continue'); return; }
+
+                const ok = loadCurrent();
+                if (!ok) { setBtn('No Tracks — Retry'); return; }
+
+                let audioOK = false;
+                try { await audio.play(); audioOK = true; log('audio: play ok'); } catch(e) { log('audio: play blocked'); }
+
+                if (!audioOK){
+                  setBtn('Tap to Unmute / Play');
+                  return;
+                }
+
+                // Success — hide button
+                startBtn.style.display='none';
+              };
+
+              function play(){ audio.play(); }
+              function next(){ if(!window.__playlist?.length) return; index=(index+1)%window.__playlist.length; loadCurrent(); audio.play(); }
+              function prev(){ if(!window.__playlist?.length) return; index=(index-1+window.__playlist.length)%window.__playlist.length; loadCurrent(); audio.play(); }
+
+              document.getElementById('btn-play')?.addEventListener('click', play);
+              document.getElementById('btn-next')?.addEventListener('click', next);
+              document.getElementById('btn-prev')?.addEventListener('click', prev);
+
+              let lastTilt = 0;
+              window.addEventListener('deviceorientation', (e)=>{
+                if (Math.abs(e.gamma - lastTilt) > 50){
+                  if (e.gamma > 40) next();
+                  if (e.gamma < -40) prev();
+                  lastTilt = e.gamma;
+                }
+              });
+            </script>
+          `}}/>
+        )}
+      </div>
+
+// ...rest of file (styles) unchanged...
 import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 
