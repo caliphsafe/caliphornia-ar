@@ -20,7 +20,7 @@ export default function ARPage(){
     const tok = u.searchParams.get('tok') || '';
     const sku = u.searchParams.get('sku') || '';
     fetch(`/api/playlist?sku=${encodeURIComponent(sku)}`)
-      .then(r=>r.json()).then(j => setPlaylist(j.tracks || [])); /* CHANGED earlier */
+      .then(r=>r.json()).then(j => setPlaylist(j.tracks || []));
     (async()=>{
       const ok = await verifyToken(tok, sku);
       setGated(!ok);
@@ -102,9 +102,14 @@ export default function ARPage(){
       <div ref={sceneRef} style={{height:'100vh', background:'#000'}}>
         {ready && !gated && (
           <div dangerouslySetInnerHTML={{__html: `
-            <audio id="player" crossorigin="anonymous" playsinline></audio>
+            <audio id="player" crossorigin="anonymous" preload="auto" playsinline></audio>
 
-            <button id="start" class="glass-button" style="position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:3;">
+            <button
+              id="start"
+              class="glass-button"
+              style="position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:3;"
+              onclick="window.__startAR&&window.__startAR()"
+            >
               Start AR & Audio
             </button>
 
@@ -201,19 +206,33 @@ export default function ARPage(){
                 }catch(e){}
               }
 
-              // PRELOAD playlist in background (without relying on it)
+              async function requestCamera(){
+                try{
+                  // Explicit user-gesture camera request for iOS/Safari
+                  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+                    // Immediately stop the temp stream; Zappar will manage camera
+                    stream.getTracks().forEach(t => t.stop());
+                  }
+                }catch(e){}
+              }
+
+              // Preload playlist opportunistically
               fetch('/api/playlist' + window.location.search)
                 .then(r=>r.json())
                 .then(j => { window.__playlist = j.tracks || []; });
 
-              document.getElementById('start').addEventListener('click', async () => {
-                await ensurePlaylistLoaded();   /* CHANGED: wait for tracks */
-                await requestMotion();          /* CHANGED: ask motion */
-                loadCurrent();                  /* CHANGED: set src BEFORE play */
+              // Global start handler bound inline to guarantee gesture binding
+              window.__startAR = async () => {
+                await ensurePlaylistLoaded();
+                await requestCamera();
+                await requestMotion();
+                loadCurrent();
                 try { await audio.play(); } catch(e) {}
-                audio.pause();                  /* unlocks audio policy on iOS */
-                document.getElementById('start').style.display='none';
-              });
+                audio.pause(); // unlocks audio autoplay policy on iOS
+                const btn = document.getElementById('start');
+                if (btn) btn.style.display='none';
+              };
 
               function play(){ audio.play(); }
               function next(){ if(!window.__playlist?.length) return; index=(index+1)%window.__playlist.length; loadCurrent(); audio.play(); ping('next'); }
